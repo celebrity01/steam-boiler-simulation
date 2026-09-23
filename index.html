@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial Three-Pass Wet-Back Steam Boiler: 3D CAD Simulation</title>
+    <script src="tailwind.min.js"></script>
+    <script src="three.min.js"></script>
+    <script src="OrbitControls.js"></script>
+    <script src="lucide.min.js"></script>
+    <style>
+        /* Custom scrollbar & glass styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.7);
+        }
+        .glow-cyan { text-shadow: 0 0 10px rgba(6, 182, 212, 0.6); }
+        .glow-orange { text-shadow: 0 0 12px rgba(249, 115, 22, 0.7); }
+        .glow-red { text-shadow: 0 0 12px rgba(239, 68, 68, 0.8); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden flex flex-col select-none">
+
+    <!-- Top Navigation & Header Bar -->
+    <header id="main-header" class="h-14 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between z-20 flex-shrink-0 shadow-lg transition-all duration-300">
+        <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded bg-gradient-to-tr from-cyan-600 to-orange-500 flex items-center justify-center font-bold text-white shadow-md">
+                3P
+            </div>
+            <div>
+                <h1 class="text-sm font-bold tracking-wide text-slate-100 uppercase flex items-center gap-2">
+                    Three-Pass Wet-Back Industrial Steam Boiler
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">ASME SEC. I / EN 12953</span>
+                </h1>
+                <p class="text-[11px] text-slate-400">Interactive 3D CAD Volumetric Cutaway & Real-Time Thermodynamic Simulation</p>
+            </div>
+        </div>
+
+        <!-- Center System Status Badges -->
+        <div class="hidden md:flex items-center space-x-4 text-xs font-mono">
+            <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 flex items-center gap-2">
+                <span class="text-slate-400">BURNER:</span>
+                <span id="status-burner" class="font-bold text-emerald-400">FIRING (GAS)</span>
+            </div>
+            <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 flex items-center gap-2">
+                <span class="text-slate-400">FEED PUMP:</span>
+                <span id="status-feed-pump" class="font-bold text-emerald-400">RUNNING</span>
+            </div>
+            <div class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 flex items-center gap-2">
+                <span class="text-slate-400">SAFETY VALVES:</span>
+                <span id="status-safety" class="font-bold text-slate-300">SEATED</span>
+            </div>
+        </div>
+
+        <!-- Right Controls: Audio, Theme & E-Stop -->
+        <div class="flex items-center space-x-3">
+            <button id="btn-toggle-theme" class="flex items-center gap-1.5 text-xs text-slate-200 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded border border-slate-700 transition font-mono" title="Toggle Light/Dark Studio Background">
+                <span id="theme-icon">☀️</span>
+                <span id="theme-label">Light Background</span>
+            </button>
+            <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded border border-slate-700 transition">
+                <input type="checkbox" id="toggle-sound" checked class="accent-cyan-500 rounded">
+                <span>Sound FX</span>
+            </label>
+            <button id="btn-estop" class="bg-red-700 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded shadow-lg transition active:scale-95 border border-red-500 tracking-wider">
+                EMERGENCY STOP
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace (Viewport + Overlays) -->
+    <div class="relative flex-1 w-full h-full overflow-hidden">
+
+        <!-- 3D Three.js Viewport -->
+        <div id="viewport-container" class="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+        <!-- Alarm Banners (Floating Top Center) -->
+        <div class="absolute top-4 left-1/2 transform -translate-x-1/2 z-30 flex flex-col items-center space-y-2 pointer-events-auto">
+            <div id="banner-lwco" class="hidden px-4 py-2 rounded-lg bg-red-950/90 border border-red-500 text-red-200 text-xs font-mono font-bold flex items-center gap-3 shadow-2xl animate-bounce">
+                <span class="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                LOW WATER CUTOFF (LWCO) ACTIVATED - BURNER TRIPPED!
+                <button id="btn-reset-lwco" class="bg-red-700 hover:bg-red-600 text-white px-2 py-0.5 rounded text-[11px] uppercase tracking-wide border border-red-400">Reset</button>
+            </div>
+            <div id="banner-overpressure" class="hidden px-4 py-2 rounded-lg bg-red-950/90 border border-red-500 text-red-200 text-xs font-mono font-bold flex items-center gap-2 shadow-2xl">
+                <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                OVERPRESSURE LIMIT EXCEEDED (>10.5 BAR) - DUAL SAFETY VALVES DISCHARGING!
+            </div>
+            <div id="banner-high-water" class="hidden px-4 py-1.5 rounded-lg bg-amber-950/90 border border-amber-500 text-amber-200 text-xs font-mono font-bold flex items-center gap-2 shadow-xl">
+                HIGH WATER WARNING (>+50mm) - RISK OF CARRYOVER INTO STEAM HEADER
+            </div>
+        </div>
+
+        <!-- Left SCADA Control Station -->
+        <div id="panel-left" class="absolute top-4 left-4 z-20 w-80 max-h-[calc(100vh-5rem)] flex flex-col space-y-3 pointer-events-auto overflow-y-auto pr-1 transition-all duration-300">
+
+            <!-- Firing & Burner Control Card -->
+            <div class="glass-panel rounded-xl p-3.5 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-orange-500"></span> Burner Modulation
+                    </span>
+                    <button id="btn-auto-mod" class="px-2 py-0.5 text-[11px] font-mono rounded bg-emerald-600 text-white font-semibold transition">
+                        Auto: ON
+                    </button>
+                </div>
+
+                <div class="space-y-3 text-xs font-mono">
+                    <div>
+                        <div class="flex justify-between text-slate-300 mb-1">
+                            <span>Firing Rate:</span>
+                            <span id="val-firing-rate" class="font-bold text-orange-400 glow-orange">65%</span>
+                        </div>
+                        <input id="slider-firing" type="range" min="0" max="100" value="65" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-500">
+                    </div>
+
+                    <div class="flex items-center justify-between pt-1">
+                        <span class="text-slate-300">Fuel Supply:</span>
+                        <select id="fuel-selector" class="bg-slate-800 text-slate-200 text-xs px-2 py-1 rounded border border-slate-700 focus:outline-none focus:border-cyan-500">
+                            <option value="gas">Natural Gas (LHV 38 MJ/m³)</option>
+                            <option value="oil">Heavy Fuel Oil (LHV 41 MJ/kg)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 pt-1 text-[11px] text-slate-400">
+                        <div class="bg-slate-800/60 p-1.5 rounded border border-slate-700/50">
+                            <div>Flame Core:</div>
+                            <div class="text-slate-200 font-bold"><span id="val-flame-temp">1250</span> °C</div>
+                        </div>
+                        <div class="bg-slate-800/60 p-1.5 rounded border border-slate-700/50">
+                            <div>Stack Exit:</div>
+                            <div class="text-slate-200 font-bold"><span id="val-stack-temp">135</span> °C</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steam Takeoff & Demand Card -->
+            <div class="glass-panel rounded-xl p-3.5 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-cyan-500"></span> Main Steam Crown Valve
+                    </span>
+                    <span id="val-crown" class="text-xs font-mono font-bold text-cyan-300">55%</span>
+                </div>
+                <div class="space-y-3 text-xs font-mono">
+                    <input id="slider-crown" type="range" min="0" max="100" value="55" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="bg-slate-800/60 p-1.5 rounded border border-slate-700/50">
+                            <div class="text-slate-400">Steam Prod:</div>
+                            <div class="text-slate-200 font-bold"><span id="val-steam-flow">3200</span> kg/h</div>
+                        </div>
+                        <div class="bg-slate-800/60 p-1.5 rounded border border-slate-700/50">
+                            <div class="text-slate-400">Demand Flow:</div>
+                            <div class="text-slate-200 font-bold"><span id="val-steam-demand">3200</span> kg/h</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feedwater & Safety Actuators Card -->
+            <div class="glass-panel rounded-xl p-3.5 shadow-xl space-y-3 text-xs font-mono">
+                <div class="border-b border-slate-700/60 pb-1.5 flex justify-between items-center">
+                    <span class="font-bold text-slate-200 uppercase tracking-wider text-[11px]">Feedwater Pump Mode</span>
+                    <div class="flex gap-1">
+                        <button id="btn-pump-auto" class="px-2 py-1 text-xs rounded bg-sky-600 text-white font-semibold">AUTO</button>
+                        <button id="btn-pump-on" class="px-2 py-1 text-xs rounded bg-slate-800 text-slate-400 hover:bg-slate-700">RUN</button>
+                        <button id="btn-pump-off" class="px-2 py-1 text-xs rounded bg-slate-800 text-slate-400 hover:bg-slate-700">OFF</button>
+                    </div>
+                </div>
+
+                <!-- Auxiliary Valve Operations -->
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                    <button id="btn-blowdown" class="bg-slate-800 hover:bg-slate-700 active:bg-orange-900 border border-slate-700 text-slate-200 py-2 rounded text-[11px] font-bold transition flex flex-col items-center">
+                        <span>BOTTOM BLOWDOWN</span>
+                        <span class="text-[9px] text-slate-400">(Hold to Purge Sludge)</span>
+                    </button>
+                    <button id="btn-safety-test" class="bg-slate-800 hover:bg-slate-700 active:bg-red-900 border border-slate-700 text-slate-200 py-2 rounded text-[11px] font-bold transition flex flex-col items-center">
+                        <span>SAFETY VALVE TEST</span>
+                        <span class="text-[9px] text-slate-400">(Hold Manual Lever)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Three-Pass Temperature Gradient Strip -->
+            <div class="glass-panel rounded-xl p-3 shadow-xl text-xs font-mono">
+                <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2 flex justify-between">
+                    <span>3-Pass Gas Temperature Profile</span>
+                    <span class="text-emerald-400">Econ: <span id="val-econ-temp">92</span>°C</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px] bg-slate-900/80 p-2 rounded border border-slate-800">
+                    <div class="text-center">
+                        <div class="text-[9px] text-orange-400">Pass 1</div>
+                        <div id="temp-pass1" class="font-bold text-slate-100">860°C</div>
+                    </div>
+                    <span class="text-slate-600">→</span>
+                    <div class="text-center">
+                        <div class="text-[9px] text-orange-300">Wet-Back</div>
+                        <div id="temp-wetback" class="font-bold text-slate-100">810°C</div>
+                    </div>
+                    <span class="text-slate-600">→</span>
+                    <div class="text-center">
+                        <div class="text-[9px] text-amber-300">Pass 2</div>
+                        <div id="temp-pass2" class="font-bold text-slate-100">420°C</div>
+                    </div>
+                    <span class="text-slate-600">→</span>
+                    <div class="text-center">
+                        <div class="text-[9px] text-yellow-200">Pass 3</div>
+                        <div id="temp-pass3" class="font-bold text-slate-100">220°C</div>
+                    </div>
+                    <span class="text-slate-600">→</span>
+                    <div class="text-center">
+                        <div class="text-[9px] text-slate-400">Stack</div>
+                        <div id="temp-stack" class="font-bold text-slate-300">135°C</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right SCADA Telemetry & Primary Gauges -->
+        <div id="panel-right" class="absolute top-4 right-4 z-20 w-72 flex flex-col space-y-3 pointer-events-auto transition-all duration-300">
+
+            <!-- Primary Steam Pressure Gauge Card -->
+            <div class="glass-panel rounded-xl p-4 shadow-xl text-center">
+                <div class="text-slate-400 text-xs font-mono uppercase tracking-wider mb-1">Steam Drum Pressure</div>
+                <div class="flex items-baseline justify-center space-x-2 my-1">
+                    <span id="val-pressure-bar" class="text-4xl font-black font-mono tracking-tight text-cyan-400 glow-cyan">8.50</span>
+                    <span class="text-slate-400 text-sm font-bold font-mono">bar(g)</span>
+                </div>
+                <div class="text-xs font-mono text-slate-400">
+                    <span id="val-pressure-psi" class="text-slate-200 font-bold">123.3</span> psi | Sat. Temp: <span id="val-water-temp" class="text-slate-200 font-bold">175.0</span> °C
+                </div>
+                <div class="mt-3 w-full bg-slate-800 rounded-full h-2 relative overflow-hidden border border-slate-700">
+                    <div class="absolute top-0 bottom-0 left-[75%] w-0.5 bg-red-500 z-10" title="10.5 bar Pop Setpoint"></div>
+                    <div class="bg-gradient-to-r from-emerald-500 via-cyan-500 to-red-500 h-full w-[70%] transition-all duration-300"></div>
+                </div>
+                <div class="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
+                    <span>0 bar</span>
+                    <span>Set: 10.5 bar</span>
+                    <span>14 bar</span>
+                </div>
+            </div>
+
+            <!-- Water Level Column Indicator Card -->
+            <div class="glass-panel rounded-xl p-3.5 shadow-xl">
+                <div class="flex items-center justify-between text-xs font-mono mb-2">
+                    <span class="text-slate-300 uppercase tracking-wider font-bold">Water Level (NWWL)</span>
+                    <span id="val-water-level-mm" class="font-bold text-sky-400">+0.0 mm</span>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <!-- Vertical Gauge Column -->
+                    <div class="relative w-8 h-32 bg-slate-900 rounded-lg border-2 border-slate-700 overflow-hidden flex flex-col justify-end">
+                        <!-- Water Fill -->
+                        <div id="gauge-water-level-fill" class="w-full bg-gradient-to-t from-sky-600 to-cyan-400 transition-all duration-200" style="height: 50%;"></div>
+                        <!-- Datum Center Line NWWL -->
+                        <div class="absolute bottom-1/2 w-full h-0.5 bg-white shadow-sm z-10"></div>
+                        <!-- High Alarm Line (+50mm) -->
+                        <div class="absolute bottom-[81%] w-full h-0.5 bg-amber-400 z-10"></div>
+                        <!-- Low Alarm Line (-30mm) -->
+                        <div class="absolute bottom-[31%] w-full h-0.5 bg-amber-400 z-10"></div>
+                        <!-- LWCO Trip Line (-50mm) -->
+                        <div class="absolute bottom-[19%] w-full h-0.5 bg-red-500 z-10"></div>
+                        <!-- Moving pointer tag -->
+                        <div id="water-level-indicator" class="absolute -right-1 w-2 h-2 bg-white rounded-full border border-slate-900 transform translate-x-1/2 -translate-y-1/2 transition-all duration-200"></div>
+                    </div>
+
+                    <!-- Level Scale Calibration Labels -->
+                    <div class="flex-1 space-y-2 text-[10px] font-mono text-slate-400">
+                        <div class="flex justify-between text-amber-300"><span>+50mm</span> <span>High Alarm</span></div>
+                        <div class="flex justify-between text-slate-100 font-bold border-l-2 border-white pl-1"><span>0mm</span> <span>Normal NWWL</span></div>
+                        <div class="flex justify-between text-amber-300"><span>-30mm</span> <span>Low Alarm</span></div>
+                        <div class="flex justify-between text-red-400 font-bold"><span>-50mm</span> <span>LWCO Trip</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operating Efficiency & Cumulative Metric -->
+            <div class="glass-panel rounded-xl p-3 shadow-xl grid grid-cols-2 gap-2 text-xs font-mono">
+                <div class="bg-slate-800/60 p-2 rounded border border-slate-700/50">
+                    <div class="text-[10px] text-slate-400 uppercase">Thermal Eff.</div>
+                    <div id="val-efficiency" class="text-base font-bold text-emerald-400">89.4%</div>
+                </div>
+                <div class="bg-slate-800/60 p-2 rounded border border-slate-700/50">
+                    <div class="text-[10px] text-slate-400 uppercase">Total Steam</div>
+                    <div class="text-base font-bold text-slate-200"><span id="val-total-steam">0.00</span> <span class="text-[10px] text-slate-400">tons</span></div>
+                </div>
+            </div>
+
+            <!-- Visual Layer Toggles -->
+            <div class="glass-panel rounded-xl p-3 shadow-xl space-y-1.5 text-xs text-slate-300">
+                <div class="text-[10px] font-mono text-slate-400 uppercase font-bold tracking-wider mb-1">Volumetric Layers</div>
+                <label class="flex items-center justify-between cursor-pointer hover:text-white">
+                    <span>Flue Gas Path Vectors</span>
+                    <input type="checkbox" id="toggle-vectors" checked class="accent-orange-500 rounded">
+                </label>
+                <label class="flex items-center justify-between cursor-pointer hover:text-white">
+                    <span>Nucleate Boiling Bubbles</span>
+                    <input type="checkbox" id="toggle-bubbles" checked class="accent-cyan-500 rounded">
+                </label>
+                <label class="flex items-center justify-between cursor-pointer hover:text-white">
+                    <span>Saturated Steam Mist</span>
+                    <input type="checkbox" id="toggle-steam" checked class="accent-slate-400 rounded">
+                </label>
+            </div>
+
+        </div>
+
+        <!-- Floating Camera Presets & Modes Bar (Bottom Center) -->
+        <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center space-x-1.5 glass-panel px-3.5 py-1.5 rounded-full shadow-2xl text-xs font-mono pointer-events-auto">
+            <span class="text-slate-400 text-[11px] pr-2 border-r border-slate-700 font-sans">View:</span>
+            <button data-camera-preset="fullview" class="px-2.5 py-1 rounded-full bg-blue-600 text-white font-semibold transition hover:bg-blue-500 shadow-md">📐 Full Plant View</button>
+            <button data-camera-preset="bottom" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Full Plant Underside & Foundation View">📐 Full Bottom View</button>
+            <button data-camera-preset="overview" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Boiler CAD</button>
+            <button data-camera-preset="burner" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Burner</button>
+            <button data-camera-preset="wetback" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Wet-Back</button>
+            <button data-camera-preset="topvalves" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Valves</button>
+            <button data-camera-preset="watercolumn" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Level Gauge</button>
+            <button data-camera-preset="economizer" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition">Economizer</button>
+            <button data-camera-preset="steamdist" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-amber-800/60 border border-amber-600/40 transition text-amber-200">🔥 Steam System</button>
+            <button data-camera-preset="feedtank" class="px-2.5 py-1 rounded-full text-slate-300 hover:text-white hover:bg-blue-900/60 border border-blue-400/40 transition text-blue-200">💧 Feedtank</button>
+            <span class="text-slate-500 text-[11px] px-1 border-l border-slate-700"></span>
+            <button id="btn-toggle-ui" class="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition flex items-center gap-1.5 border border-slate-700" title="Toggle SCADA telemetry panels & text write-ups (Key: H)">
+                <span id="ui-toggle-icon">📑</span>
+                <span id="ui-toggle-label">Show Write-Up</span>
+            </button>
+            <span class="text-slate-500 text-[11px] px-1 border-l border-slate-700"></span>
+            <button id="btn-toggle-transparent" class="px-3.5 py-1 rounded-full bg-cyan-950 hover:bg-cyan-900 text-cyan-300 font-bold transition flex items-center gap-1.5 border border-cyan-400/60 shadow-lg" title="Toggle Transparent Shell Cutaway View">
+                <span id="transparent-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                <span id="transparent-label">Transparent View</span>
+            </button>
+            <span class="text-slate-500 text-[11px] px-1 border-l border-slate-700"></span>
+            <button id="btn-toggle-explode" class="px-3.5 py-1 rounded-full bg-amber-950 hover:bg-amber-900 text-amber-300 font-bold transition flex items-center gap-1.5 border border-amber-500/60 shadow-lg" title="Toggle 3D Exploded Assembly View">
+                <span id="explode-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                <span id="explode-label">💥 Exploded View</span>
+            </button>
+            <div class="hidden lg:flex items-center gap-2 pl-2 pr-1 border-l border-slate-700">
+                <span class="text-[10px] text-slate-400 font-sans">Explode:</span>
+                <input id="slider-explode" type="range" min="0" max="100" value="0" class="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg">
+                <span id="val-explode" class="text-[10px] text-amber-300 font-mono w-7 text-right">0%</span>
+            </div>
+        </div>
+
+        <!-- Interactive 3D Component Inspector Card (Contextual Modal) -->
+        <div id="inspector-card" class="hidden absolute bottom-16 right-4 z-20 w-80 glass-panel rounded-xl p-4 shadow-2xl border border-cyan-500/40 pointer-events-auto transition-all duration-300">
+            <div class="flex items-start justify-between border-b border-slate-700 pb-2 mb-2">
+                <div>
+                    <h3 id="inspector-title" class="text-sm font-bold text-cyan-300">Component Name</h3>
+                    <p id="inspector-category" class="text-[10px] text-slate-400 font-mono">Subsystem Category</p>
+                </div>
+                <button onclick="document.getElementById('inspector-card').classList.add('hidden')" class="text-slate-400 hover:text-white text-xs">✕</button>
+            </div>
+            <p id="inspector-desc" class="text-xs text-slate-300 leading-relaxed mb-3">
+                Component functional and mechanical description.
+            </p>
+            <div class="bg-slate-900/80 p-2 rounded text-[11px] font-mono border border-slate-800 space-y-1 mb-2">
+                <div class="text-slate-400">Design Standard: <span id="inspector-asme" class="text-slate-200 font-semibold">ASME Sec. I</span></div>
+                <div id="inspector-telemetry" class="text-cyan-400 font-semibold">Live Telemetry Data</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Application Script Execution -->
+    <script src="physics.js"></script>
+    <script src="particles.js"></script>
+    <script src="scene3d.js"></script>
+    <script src="audio.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
